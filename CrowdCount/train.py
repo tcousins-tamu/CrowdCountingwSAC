@@ -87,6 +87,7 @@ replay = ReplayBuffer(size=parameters['BUFFER_LENGTH'], vector_len_fv=512, vecto
 # =============================================================================             
 for epoch in range(epoch_last, all_epoches): 
     net.DQN_faze.load_state_dict(net.DQN.state_dict())
+    #NOTE - This is the optimizer used for this implementation. Need to double check if it is doing what i think it is.
     optimizer = optim.SGD([{'params':net.DQN.parameters(), 'lr':learning_rate[epoch]}])
 
     train_model(net, epoch, all_epoches, train_path, replay, optimizer, minerror, parameters)
