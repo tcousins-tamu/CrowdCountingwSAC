@@ -196,7 +196,6 @@ def weights_normal_init(model, dev=0.01):
 class Actor(nn.Module):
     def __init__(self, ACTION_NUMBER, HV_NUMBER, max_action=10):
         super(Actor, self).__init__()
-
         self.conv1 = nn.Conv2d(HV_NUMBER+512, 1024, kernel_size=1, padding=0)
         self.conv2 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
         self.conv3 = nn.Conv2d(1024, ACTION_NUMBER, kernel_size=1, padding=0)
@@ -211,7 +210,7 @@ class Actor(nn.Module):
     
     
 class CriticQ(nn.Module):
-    def __init__(self, HV_Number, ACTION_NUMBER):
+    def __init__(self, HV_NUMBER, ACTION_NUMBER):
         super(CriticQ, self).__init__()
         self.conv1 = nn.Conv2d(HV_NUMBER+512, 1024, kernel_size=1, padding=0)
         self.conv2 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
