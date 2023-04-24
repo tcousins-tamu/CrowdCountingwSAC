@@ -183,3 +183,67 @@ def weights_normal_init(model, dev=0.01):
                     m.bias.data.fill_(0)
             elif isinstance(m, nn.Linear):
                 m.weight.data.normal_(0, dev)
+
+
+
+
+
+
+
+
+
+
+class Actor(nn.Module):
+    def __init__(self, ACTION_NUMBER, HV_NUMBER, max_action=10):
+        super(Actor, self).__init__()
+
+        self.conv1 = nn.Conv2d(HV_NUMBER+512, 1024, kernel_size=1, padding=0)
+        self.conv2 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
+        self.conv3 = nn.Conv2d(1024, ACTION_NUMBER, kernel_size=1, padding=0)
+        self.max_action = max_action
+
+
+    def forward(self, state):
+        x = nn.functional.relu(self.conv1(state))
+        x = nn.functional.relu(self.conv2(x))
+        x = self.max_action * torch.tanh(self.conv3(x))
+        return x
+    
+    
+class CriticQ(nn.Module):
+    def __init__(self, HV_Number, ACTION_NUMBER):
+        super(CriticQ, self).__init__()
+        self.conv1 = nn.Conv2d(HV_NUMBER+512, 1024, kernel_size=1, padding=0)
+        self.conv2 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
+        self.conv3 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
+        self.fc4 = nn.Linear(HV_NUMBER+512+1024, 512)
+        self.fc5 = nn.Linear(512, 1)
+
+    def forward(self, state, action):
+        x = nn.functional.relu(self.conv1(state))
+        x = nn.functional.relu(self.conv2(x))
+        x = nn.functional.relu(self.conv3(x))
+        x = x.view(-1, state.size()[1] + action.size()[1])
+        x = torch.cat((x, action), dim=-1)
+        x = nn.functional.relu(self.fc4(x))
+        value = self.fc5(x)        
+        return value
+    
+    
+class CriticV(nn.Module):
+    def __init__(self, HV_NUMBER):
+        super(CriticV, self).__init__()
+        self.conv1 = nn.Conv2d(HV_NUMBER+512, 1024, kernel_size=1, padding=0)
+        self.conv2 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
+        self.conv3 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
+        self.fc4 = nn.Linear(HV_NUMBER+512+1024, 512)
+        self.fc5 = nn.Linear(512, 1)
+
+    def forward(self, state):
+        x = nn.functional.relu(self.conv1(state))
+        x = nn.functional.relu(self.conv2(x))
+        x = nn.functional.relu(self.conv3(x))
+        x = x.view(-1, x.size()[1])
+        x = nn.functional.relu(self.fc4(x))
+        value = self.fc5(x)        
+        return value
