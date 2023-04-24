@@ -193,7 +193,7 @@ class CriticNetwork(nn.Module):
         self.name = name
         self.checkpoint_dir = chkpt_dir
         self.checkpoint_file = os.path.join(self.checkpoint_dir, name+"_sac")
-        
+        print("THESE ARE THE DIMENSIONS OF THE CRITIC NETWORK: ", input_dims)
         self.ACTION_NUMBER = n_actions
         self.layer1 = nn.Conv2d(in_channels=input_dims, out_channels=1024, kernel_size=1, padding=0)        
         self.layer2 = nn.ReLU(inplace=True)  
@@ -208,9 +208,9 @@ class CriticNetwork(nn.Module):
                 
         #May want to use SGD as our network
         self.optimizer = optim.Adam(self.parameters(), lr=beta)
-        self.device = T.device('cude:0' if T.cuda_is_available() else 'cpu')
+        self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
         self.to(self.device)
-        
+
     def forward(self, x, hv):
         x = [x,hv]        
         x = T.cat(x,1)
@@ -245,26 +245,43 @@ class ValueNetwork(nn.Module):
         super(ValueNetwork, self).__init__()
         self.input_dims = input_dims
         self.name = name
-        self.checkpointdir = chkpt_dir
+        self.checkpoint_dir = chkpt_dir
         self.checkpoint_file = os.path.join(self.checkpoint_dir, name + "_sac")
         
         #NOTE - I dont know why this is, however they always add 512 to input dimensions
-        self.fc1 = nn.Linear(input_dims, fc1_dims)
-        self.fc2 = nn.Linear(fc1_dims, fc2_dims)
-        self.v = nn.Linear(fc2_dims, 1)
+        # print("THESE ARE THE INPUT DIMENSIONS FOR VALUE: ", input_dims)
+        # self.fc1 = nn.Linear(input_dims, fc1_dims)
+        # self.fc2 = nn.Linear(fc1_dims, fc2_dims)
+        # self.v = nn.Linear(fc2_dims, 1)
+        #TODO - Ensure that these dimensions are correct, the program did not like linear layers
+        
+        self.layer1 = nn.Conv2d(in_channels=input_dims, out_channels=1024, kernel_size=1, padding=0)        
+        self.layer2 = nn.ReLU(inplace=True)  
+        self.layer3 = nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=1, padding=0)        
+        self.layer4 = nn.ReLU(inplace=True)  
+        self.layer5 = nn.Conv2d(in_channels=1024, out_channels=1, kernel_size=1, padding=0)
         
         self.optimizer = optim.Adam(self.parameters(), lr=beta)
         self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
         self.to(self.device)
         
-    def forward(self, state):
-        state_value = self.fc1(state)
-        state_value = F.relu(state_value)
-        state_value = self.fc2(state_value)
-        state_value = F.relu(state_value)
+    def forward(self, x, hv):
+        # state_value = self.fc1(state)
+        # state_value = F.relu(state_value)
+        # state_value = self.fc2(state_value)
+        # state_value = F.relu(state_value)
         
-        v = self.v(state_value)
-        return v
+        # v = self.v(state_value)
+        # return v
+        x = [x,hv]        
+        x = T.cat(x,1)
+        #del hv not deleting in the critic network, because we use it several times, 
+        x = self.layer1(x) 
+        x = self.layer2(x) 
+        x = self.layer3(x) 
+        x = self.layer4(x) 
+        x = self.layer5(x) 
+        return x
     
     def save_checkpoint(self):
         T.save(self.state_dict(), self.checkpoint_file)
@@ -376,6 +393,7 @@ class LibraNetSAC(nn.Module):
         self.gamma = parameters['GAMMA']
         self.tau = parameters['TAU']
         self.scale = parameters['SCALE']
+        self.beta = parameters['BETA']
         #self.n_actions = len(self.A) #for now, we will use parameters['ACTION_NUMBER']
         
         #Creating the actor, critic, and value networks
@@ -416,13 +434,12 @@ class LibraNetSAC(nn.Module):
                 (1-tau)*target_value_state_dict[name].clone()
                 
         self.target_value.load_state_dict(value_state_dict)
-        
-    # def get_feature( self, im_data=None):
-    #     return self.backbone(im_data)
-    
-    #NOTE - Theere is not need for these functions with the SAC implementation
+
     def get_Q(self, feature=None, history_vectory=None):
         return self.actor(feature,history_vectory) * 100
+    
+    def get_feature( self, im_data=None):
+        return self.backbone(im_data)
     
 
 #I actually do not know what this function does, might need to investigate later

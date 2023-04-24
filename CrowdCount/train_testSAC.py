@@ -10,7 +10,7 @@ import os
 from torchvision import transforms
 import torch.nn.functional as F
 
-def train_model(net, epoch, all_epoches, train_path, replay, optimizer, minerror, parameters):
+def train_modelSAC(net, epoch, all_epoches, train_path, replay, optimizer, minerror, parameters):
     
     train_img = train_path + 'image/'
     train_gt = train_path + 'gt_classmap/'
@@ -239,23 +239,24 @@ def train_model(net, epoch, all_epoches, train_path, replay, optimizer, minerror
                         done_mask = torch.FloatTensor(done_mask).cuda().unsqueeze(2).unsqueeze(3)
                                                 
                         #NOTE - obtaining the critic value
-                        actions = net.actor.sample(state_hv_batch)
                         with torch.no_grad():
                             #TODO -  determine if I am doing this correctly, I would have done forward but I had no way of knowing what was optimal decisions
                             #check if I want to use next state for critics
-                            c1_new_policy = net.critic_1(feature = state_fv_batch, history_vectory = next_state_hv_batch)
+                            c1_new_policy = net.critic_1(state_fv_batch, next_state_hv_batch)
                             c1_new_policy = c1_new_policy.data.max(1)[0].unsqueeze(1)
                             
-                            c2_new_policy = net.critic_2(feature = state_fv_batch, history_vectory = next_state_hv_batch)
+                            c2_new_policy = net.critic_2(state_fv_batch, next_state_hv_batch)
                             c2_new_policy = c2_new_policy.data.max(1)[0].unsqueeze(1)
                                                         
                             critic_value = torch.min(c1_new_policy, c2_new_policy)
                             #targets = rew_batch.unsqueeze(1) + parameters['GAMMA'] * (1 - done_mask.unsqueeze(1)) * critic_value
 
                         #TODO - Ensure that I want to be using hv vectors. I think I want to be using fv
-                        value = net.value(state_hv_batch).view(-1)
-                        value_ = net.target_value(next_state_hv_batch).view(-1)
-                        value_[done_mask] = 0.0
+                        print("THIS IS THE SHAPE OF THE STATE_HV_BATCH: ", state_hv_batch.shape, "FV_BATCH: ", state_fv_batch.shape)
+                        value = net.value(state_fv_batch, state_hv_batch).view(-1)
+                        value_ = net.target_value(state_fv_batch, next_state_hv_batch).view(-1)
+                        #TODO - Figure out how to do this with the elements in CUDA vs CPU
+                        # value_[done_mask] = 0.0
                         
                         #TODO - Check if I need to create a value target, by converting the Q function to a value func
                         net.value.optimizer.zero_grad()
@@ -271,23 +272,26 @@ def train_model(net, epoch, all_epoches, train_path, replay, optimizer, minerror
                         
                         #TODO - Determine if I am calculating actor loss correctly                        
                         # actor_loss = critic_value - rew_batch
-                        a_policy = net.actor(feature = state_fv_batch, history_vectory = state_hv_batch)
+                        a_policy = net.actor(state_fv_batch, state_hv_batch)
                         a_policy = a_policy.gather(1, act_batch)
                         
                         #TODO - Determine if structures are correct, determine if loss is correct
+                        #TODO - Determine if all models needs a different learning rate like the actor per epoch
                         actor_loss = torch.mean(a_policy - critic_value) 
-                        net.actor.optimizer.zero_grad()
+                        optimizer.zero_grad()
+                        #net.actor.optimizer.zero_grad()
                         actor_loss.backward(retain_graph=True)
-                        net.actor.optimizer.step()
+                        #net.actor.optimizer.step()
+                        optimizer.step()
                         
                         #TODO - Ensure That I am updating critic networks properly
                         net.critic_1.optimizer.zero_grad()
                         net.critic_2.optimizer.zero_grad()
                         #TODO - Determine if my soft update equation is correct
                         q_hat = parameters['SCALE']*rew_batch + parameters['GAMMA']*value_
-                        c1_old_policy = net.critic_1(feature = state_fv_batch, history_vectory = state_hv_batch)
+                        c1_old_policy = net.critic_1(state_fv_batch, state_hv_batch)
                         c1_old_policy = c1_old_policy.data.max(1)[0].unsqueeze(1)      
-                        c2_old_policy = net.critic_2(feature = state_fv_batch, history_vectory = state_hv_batch)
+                        c2_old_policy = net.critic_2(state_fv_batch, state_hv_batch)
                         c2_old_policy = c2_old_policy.data.max(1)[0].unsqueeze(1)
                         c1_loss = .5*F.mse_loss(c1_old_policy, q_hat)
                         c2_loss = .5*F.mse_loss(c2_old_policy, q_hat)

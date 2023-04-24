@@ -14,9 +14,9 @@ from pathlib import Path
 # =============================================================================
 # creatived package
 # =============================================================================
-from model import LibraNet, weights_normal_init
+from LibranetSAC import LibraNetSAC, weights_normal_init
 from buffer import ReplayBuffer
-from train_testSAC import train_modelSAC,test_model
+from train_testSAC import train_modelSAC, test_model
 
 try:
     torch._utils._rebuild_tensor_v2
@@ -65,7 +65,7 @@ minerror = np.zeros(2)
 minerror[0] = 9999
 minerror[1] = 9999
 
-net = LibraNet(parameters) 
+net = LibraNetSAC(parameters) 
 weights_normal_init(net, 0.01) 
 
 if not Path("model_ckpt.pth.tar").is_file():
@@ -92,9 +92,10 @@ replay = ReplayBuffer(size=parameters['BUFFER_LENGTH'], vector_len_fv=512, vecto
 # Training 
 # =============================================================================             
 for epoch in range(epoch_last, all_epoches): 
-    net.DQN_faze.load_state_dict(net.DQN.state_dict())
+    #TODO - Figure out the equilency to the below statement
+    # net.DQN_faze.load_state_dict(net.DQN.state_dict())
     #NOTE - This is the optimizer used for this implementation. Need to double check if it is doing what i think it is.
-    optimizer = optim.SGD([{'params':net.DQN.parameters(), 'lr':learning_rate[epoch]}])
+    optimizer = optim.SGD([{'params':net.actor.parameters(), 'lr':learning_rate[epoch]}])
     #For SAC we will need additional optimizers, however in my implementation, they are in the classes.
     
     train_modelSAC(net, epoch, all_epoches, train_path, replay, optimizer, minerror, parameters)
