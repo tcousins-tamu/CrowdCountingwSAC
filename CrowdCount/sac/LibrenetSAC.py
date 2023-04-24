@@ -8,7 +8,16 @@ import torch.nn.functional as F
 import torch.nn as nn
 import torch.optim as optim
 from torch.distributions.normal import Normal
+import random 
 
+#Helper Functions
+def sample_n_unique(sampling_f, n1):
+    res = []
+    while len(res) < n1:
+        candidate = sampling_f()
+        if candidate not in res:
+            res.append(candidate)
+    return res
 
 #Backbone (do not touch)
 class VGG16_BackBone(nn.Module):
@@ -168,57 +177,61 @@ class ReplayBuffer(object):
 #Step Two: Create the Critic Network
 #REVIEW - Ensure that the only changes necessary have been made
 class CriticNetwork(nn.Module):
-    def __init__(self, beta, input_dims, n_actions, fc1_dims = 10, fc2_dims = 10, name = "critic", chkpt_dir = "tmp/sac"):
+    def __init__(self, beta, input_dims, n_actions, name = "critic", chkpt_dir = "tmp/sac"):
         """_summary_
 
         Args:
             beta (_type_): learning rate
             input_dims (_type_): Dimensionality of the state
             n_actions (_type_): Dimensionality of action space
-            fc1_dims (_type_): Dimensions of the hidden layer, defaults to 10
-            fc2_dims (_type_): Dimensions of the second hidden layer, defaults to 10
             name (_type_): name for the checkpoint file
             chkpt_dir (str, optional): _description_. Defaults to "tmp/sac".
         """
         super(CriticNetwork, self).__init__()
         self.input_dims = input_dims
-            
-        self.fc1_dims = fc1_dims
-        self.fc2_dims = fc2_dims
+        
         self.name = name
         self.checkpoint_dir = chkpt_dir
         self.checkpoint_file = os.path.join(self.checkpoint_dir, name+"_sac")
         
-        self.fc1 = nn.Linear(self.input_dims[0]+n_actions, self.fc1_dims) #defines a linear layer (y=mx+b)
-        self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
+        self.ACTION_NUMBER = n_actions
+        self.layer1 = nn.Conv2d(in_channels=input_dims, out_channels=1024, kernel_size=1, padding=0)        
+        self.layer2 = nn.ReLU(inplace=True)  
+        self.layer3 = nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=1, padding=0)        
+        self.layer4 = nn.ReLU(inplace=True)  
+        self.layer5 = nn.Conv2d(in_channels=1024, out_channels=n_actions, kernel_size=1, padding=0) #Final Layer maps back to action space     
         
-        #NOTE - Changed this layer to map to the action space
-        self.q = nn.Linear(self.fc2_dims, n_actions) #when I go back and implement this for the Librenet, this will cast back into an action space
-        
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                init.xavier_uniform_(m.weight.data)
+                init.constant_(m.bias.data,0.01)
+                
         #May want to use SGD as our network
         self.optimizer = optim.Adam(self.parameters(), lr=beta)
         self.device = T.device('cude:0' if T.cuda_is_available() else 'cpu')
         self.to(self.device)
         
-    def forward(self, state, action):
-        action_value = self.fc1(T.cat([state, action], dim=1))
-        action_value = F.relu(action_value)
-        action_value = self.fc2(action_value)
-        action_value = F.relu(action_value)
-        
-        q = self.q(action_value)
-        return q
+    def forward(self, x, hv):
+        x = [x,hv]        
+        x = T.cat(x,1)
+        #del hv not deleting in the critic network, because we use it several times, 
+        x = self.layer1(x) 
+        x = self.layer2(x) 
+        x = self.layer3(x) 
+        x = self.layer4(x) 
+        x = self.layer5(x) 
+        return x
     
     def save_checkpoint(self):
         T.save(self.state_dict(), self.checkpoint_file)
         
     def load_checkpoint(self):
         self.load_state_dict(T.load(self.checkpoint_file))
-        
+           
 #Step Three: Create the Value Network 
 #REVIEW - I made no changes to the implementation in this section,  ensure correctness
 class ValueNetwork(nn.Module):
-    def __init__(self, beta, input_dims, fc1_dims = 10, fc2_dims = 10, name = "value", chkpt_dir = "tmp/sac"):
+    def __init__(self, beta, input_dims, fc1_dims = 256, fc2_dims = 256, name = "value", chkpt_dir = "tmp/sac"):
         """Contains the value network implementation for SAC. 
 
         Args:
@@ -231,15 +244,14 @@ class ValueNetwork(nn.Module):
         """
         super(ValueNetwork, self).__init__()
         self.input_dims = input_dims
-        self.fc1_dims = fc1_dims
-        self.fc2_dims = fc2_dims
         self.name = name
         self.checkpointdir = chkpt_dir
         self.checkpoint_file = os.path.join(self.checkpoint_dir, name + "_sac")
         
-        self.fc1 = nn.Linear(*self.input_dims, self.fc1_dims)
-        self.fc2 = nn.Linear(self.fc1_dims, fc2_dims)
-        self.v = nn.Linear(self.fc2_dims, 1)
+        #NOTE - I dont know why this is, however they always add 512 to input dimensions
+        self.fc1 = nn.Linear(input_dims, fc1_dims)
+        self.fc2 = nn.Linear(fc1_dims, fc2_dims)
+        self.v = nn.Linear(fc2_dims, 1)
         
         self.optimizer = optim.Adam(self.parameters(), lr=beta)
         self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
@@ -263,54 +275,52 @@ class ValueNetwork(nn.Module):
 #Step Four: Create the actor network, not to be confused with the agent
 #REVIEW - In particular, I think that the sample function needs to be looked at
 class ActorNetwork(nn.Module):
-    def __init__(self, beta, input_dims, fc1_dims=10, fc2_dims=10, n_actions = 2, name = 'actor', chkpt_dir = "tmp/sac"):
+    def __init__(self, beta, input_dims, n_actions = 2, name = 'actor', chkpt_dir = "tmp/sac"):
         """Contains the implementation of the actor network
 
         Args:
             beta (_type_): learning rate
             input_dims (_type_): dimensionality of the state input
-            fc1_dims (int, optional): dimensions of the first hidden layer. Defaults to 256. (lowered for testing)
-            fc2_dims (int, optional): dimensions of the second hidden layer. Defaults to 256. (lowered for testing)
             n_actions (int, optional): Size of the action space. Defaults to 2. #NOTE - unkown reason behind the default value here, look into it later
             name (str, optional): name for saving. Defaults to 'actor'.
             chkpt_dir (str, optional): location of save. Defaults to "tmp/sac".
         """
         super(ActorNetwork, self).__init__()
         self.input_dims = input_dims
-        self.fc1_dims = fc1_dims
-        self.fc2_dims = fc2_dims
         self.n_actions = n_actions
         self.name = name
         self.checkpoint_dir = chkpt_dir
         self.checkpoint_file = os.path.join(self.checkpoint_dir, name+'_sac')
-        # self.reparam_noise = 1e-6 #not needed outside of a continuous state space
         
-        self.fc1 = nn.Linear(*self.input_dims, self.fc1_dims)
-        self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
+        self.ACTION_NUMBER = n_actions
+        self.layer1 = nn.Conv2d(in_channels=input_dims, out_channels=1024, kernel_size=1, padding=0)        
+        self.layer2 = nn.ReLU(inplace=True)  
+        self.layer3 = nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=1, padding=0)        
+        self.layer4 = nn.ReLU(inplace=True)  
+        self.layer5 = nn.Conv2d(in_channels=1024, out_channels=n_actions, kernel_size=1, padding=0)         
         
         #NOTE - These were needed for a continuous action space, that is the case no longer
-        self.q = nn.Linear(self.fc2_dims, self.n_actions)
-        # self.mu = nn.Linear(self.fc2_dims, self.n_actions)
-        # self.sigma = nn.Linear(self.fc2_dims, self.n_actions)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                init.xavier_uniform_(m.weight.data)
+                init.constant_(m.bias.data,0.01)
         
+        #The biggest difference here is that we change have the optimizers in the networks
         self.optimizer = optim.Adam(self.parameters(), lr=beta)
         self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
         
         self.to(self.device)
         
-    def forward(self, state):
-        prob = self.fc1(state)
-        prob = F.relu(prob)
-        prob = self.fc2(prob)
-        prob = F.relu(prob)
-        
-        #NOTE - We are returning the action values instead
-        aValues = self.q(prob)
-        # mu = self.mu(prob)
-        # sigma = self.sigma(prob)
-        
-        # sigma = T.clamp(sigma, min = self.reparam_noise, max = 1)
-        return aValues
+    def forward(self, x, hv):
+        x = [x,hv]        
+        x = T.cat(x,1)
+        #del hv, not deleting here either, we will handle it in code
+        x = self.layer1(x) 
+        x = self.layer2(x) 
+        x = self.layer3(x) 
+        x = self.layer4(x) 
+        x = self.layer5(x) 
+        return x
     
     #NOTE - The sample normal function was just replaced with a sample function, that will returnt the highest value for now
     #TODO - Determine if there needs to be a probabilistic decision for action choice
@@ -319,23 +329,6 @@ class ActorNetwork(nn.Module):
         aValues = self.forward(state).cpu().detach().numpy()
         maxAction = np.argmax(aValues)
         return maxAction
-    
-    #This is associated with a continuous action space, will need to change
-    # def sample_normal(self, state, reparameterize = True):
-    #     mu, sigma = self.forward(state)
-    #     probabilities = Normal(mu, sigma)
-        
-    #     if reparameterize:
-    #         actions = probabilities.rsample()
-    #     else:
-    #         actions = probabilities.sample()
-            
-    #     action = T.tanh(actions)*T.tensor(self.max_action).to(self.device)
-    #     log_probs = probabilities.log_prob(actions)
-    #     log_probs -= T.log(1-action.pow(2)+self.reparam_noise)
-    #     log_probs = log_probs.sum(1, keepdim = True)
-        
-    #     return action, log_probs
     
     def save_checkpoint(self):
         T.save(self.state_dict(), self.checkpoint_file)
@@ -348,6 +341,7 @@ class LibraNetSAC(nn.Module):
     def __init__(self, parameters):
         super(LibraNetSAC, self).__init__()  
         #Weights definition
+        #If youre gonna update some of these, dont forget to update the parameters['action_number']
         Action1 = -10
         Action2 = -5
         Action3 = -2
@@ -378,25 +372,28 @@ class LibraNetSAC(nn.Module):
             #1. replay buffer, created in train.py
             #2. Batch size, used where replay buffer is created
         #TODO - update the parameters to include these items
-        self.alpha = parameters['alpha']
-        self.gamma = parameters['gamma']
-        self.tau = parameters['tau']
-        self.n_actions = len(self.A)
+        self.alpha = parameters['ALPHA']
+        self.gamma = parameters['GAMMA']
+        self.tau = parameters['TAU']
+        self.scale = parameters['SCALE']
+        #self.n_actions = len(self.A) #for now, we will use parameters['ACTION_NUMBER']
         
         #Creating the actor, critic, and value networks
         #TODO - Figure out how to get the dimensions of the states and put it in input_dims
-        self.actor = ActorNetwork(self.alpha, ?input_dims, n_actions = self.n_actions, name = "actor")
+        #For now, we will assume based on initial DQN creation that it is HV_NUMBER+512
+        self.actor = ActorNetwork(self.alpha, parameters['HV_NUMBER']+512, n_actions = parameters['ACTION_NUMBER'], name = "actor")
         
-        self.critic_1 = CriticNetwork(self.beta, ?input_dims, n_actions = self.n_actions, name = "critic_1")
-        self.critic_2 = CriticNetwork(self.beta, ?input_dims, n_actions = self.n_actions, name = "critic_2")
+        self.critic_1 = CriticNetwork(self.beta, parameters['HV_NUMBER']+512, n_actions = parameters['ACTION_NUMBER'], name = "critic_1")
+        self.critic_2 = CriticNetwork(self.beta, parameters['HV_NUMBER']+512, n_actions = parameters['ACTION_NUMBER'], name = "critic_2")
         
-        self.value = ValueNetwork(self.beta, ?input_dims, name = "value")
-        self.target_value = ValueNetwork(self.beta, ?input_dims, name = "target_value")
+        self.value = ValueNetwork(self.beta, parameters['HV_NUMBER']+512, name = "value")
+        self.target_value = ValueNetwork(self.beta, parameters['HV_NUMBER']+512, name = "target_value")
         
         #Network definition, figure out where the backbone fits into the equation
         self.backbone = VGG16_BackBone()      
         
         #TODO - Ensure that this function is setup properly for this framework 
+        #for the initialization, tau = 1, in accordance with the SAC video I watched
         self.update_network_parameters(tau = 1)
         
         # self.DQN = DQN(parameters['ACTION_NUMBER'], parameters['HV_NUMBER'])
@@ -424,11 +421,9 @@ class LibraNetSAC(nn.Module):
     #     return self.backbone(im_data)
     
     #NOTE - Theere is not need for these functions with the SAC implementation
-    # def get_Q(self, feature=None, history_vectory=None):
-    #     return self.DQN(feature,history_vectory) * 100
+    def get_Q(self, feature=None, history_vectory=None):
+        return self.actor(feature,history_vectory) * 100
     
-    # def get_Q_faze(self, feature=None, history_vectory=None):
-    #     return self.DQN_faze(feature, history_vectory) * 100
 
 #I actually do not know what this function does, might need to investigate later
 def weights_normal_init(model, dev=0.01):

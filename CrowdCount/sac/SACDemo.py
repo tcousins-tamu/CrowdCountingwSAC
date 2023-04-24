@@ -290,6 +290,7 @@ class Agent():
         if self.memory.mem_cntr < self.batch_size:
             return
         
+        #sampling from the buffer
         state, action, reward, new_state, done = \
             self.memory.sample(self.batch_size)
         
