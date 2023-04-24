@@ -11,12 +11,10 @@ import torch
 import numpy as np
 from torch import optim
 from pathlib import Path
+from tqdm import tqdm
 # =============================================================================
 # creatived package
 # =============================================================================
-from model import LibraNet, weights_normal_init
-from buffer import ReplayBuffer
-from train_test import train_model,test_model
 
 try:
     torch._utils._rebuild_tensor_v2
@@ -45,8 +43,9 @@ parameters = {'TRAIN_SKIP':100,
 # =============================================================================
 # Path setting
 # =============================================================================
-train_path ='data/Train/'
-test_path ='data/Test/'      
+dir_path = os.getcwd() + '/drive/MyDrive/Colab Notebooks/743 Project/'
+train_path = dir_path + 'data/Train/'
+test_path = dir_path + 'data/Test/'      
 # =============================================================================
 # Learning rate
 # =============================================================================
@@ -62,20 +61,20 @@ minerror[1] = 9999
 net = LibraNet(parameters) 
 weights_normal_init(net, 0.01) 
 
-if not Path("model_ckpt.pth.tar").is_file():
+if not Path(dir_path + "model_ckpt.pth.tar").is_file():
     epoch_last=0    
     print("Load pretrained model!")
-    net.backbone.load_state_dict(torch.load('backbone.pth.tar')['state_dict'])
+    net.backbone.load_state_dict(torch.load(dir_path + 'backbone.pth.tar')['state_dict'])
     print("Load finish!set pretrained paraments!")
 
 else:
     print("Load check point model!")
-    net.load_state_dict(torch.load('model_ckpt.pth.tar')['state_dict'])
-    epoch_last = torch.load('model_ckpt.pth.tar')['epoch'] + 1
-    minerror[0] = torch.load('model_ckpt.pth.tar')['mae']
-    minerror[1] = torch.load('model_ckpt.pth.tar')['mse']
+    net.load_state_dict(torch.load(dir_path + 'model_ckpt.pth.tar')['state_dict'])
+    epoch_last = torch.load(dir_path + 'model_ckpt.pth.tar')['epoch'] + 1
+    minerror[0] = torch.load(dir_path + 'model_ckpt.pth.tar')['mae']
+    minerror[1] = torch.load(dir_path + 'model_ckpt.pth.tar')['mse']
     
-net = net.cuda()   
+net = net.cuda()
             
 # =============================================================================
 # Buffer Setting
@@ -85,11 +84,11 @@ replay = ReplayBuffer(size=parameters['BUFFER_LENGTH'], vector_len_fv=512, vecto
 # =============================================================================
 # Training 
 # =============================================================================             
-for epoch in range(epoch_last, all_epoches): 
-    net.DQN_faze.load_state_dict(net.DQN.state_dict())
-    optimizer = optim.SGD([{'params':net.DQN.parameters(), 'lr':learning_rate[epoch]}])
+for epoch in tqdm(range(epoch_last, all_epoches)): 
+    net.v_target.load_state_dict(net.v.state_dict())
+    optimizer = optim.SGD([{'params':net.v.parameters(), 'lr':learning_rate[epoch]}])
 
-    train_model(net, epoch, all_epoches, train_path, replay, optimizer, minerror, parameters)
+    # train_model(net, epoch, all_epoches, train_path, replay, optimizer, minerror, parameters)
     mae,mse = test_model(net, epoch, test_path, parameters)
     
     ##Save model
@@ -103,7 +102,7 @@ for epoch in range(epoch_last, all_epoches):
             'mae':mae,
             'mse':mse
         }
-        torch.save(state_best, 'model_best.pth.tar')
+        torch.save(state_best, dir_path + 'model_best.pth.tar')
                 
     state_ckpt = {
                 'state_dict':net.state_dict(),
@@ -112,11 +111,11 @@ for epoch in range(epoch_last, all_epoches):
                 'mse':mse
             }
     
-    torch.save(state_ckpt, 'model_ckpt.pth.tar')
+    torch.save(state_ckpt, dir_path + 'model_ckpt.pth.tar')
         
     print('mae=%.3f,mse=%.3f\n'%(mae, mse))
     
-    f = open("result.txt", 'a') 
+    f = open(dir_path + "result.txt", 'a') 
     f.write('EPOCH:%d, mae=%.4f,mse=%.4f\n'%(epoch, mae, mse))
     f.close()
     

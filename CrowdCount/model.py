@@ -49,7 +49,7 @@ class VGG16_BackBone(nn.Module):
         self.layer27 = nn.ReLU(inplace=True)    
         self.layer28 = nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, padding=1) 
         self.layer29 = nn.ReLU(inplace=True)
-        self.layer30 = nn.MaxPool2d(kernel_size=2, stride=2) 
+        self.layer30 = nn.MaxPool2d(kernel_size=2, stride=2)
         
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -155,15 +155,25 @@ class LibraNet(nn.Module):
         self.backbone = VGG16_BackBone()       
         self.DQN = DQN(parameters['ACTION_NUMBER'], parameters['HV_NUMBER'])
         self.DQN_faze = DQN(parameters['ACTION_NUMBER'], parameters['HV_NUMBER'])
+
+        self.actor = Actor(parameters['ACTION_NUMBER'], parameters['HV_NUMBER'])
+
+        self.v = CriticV(parameters['HV_NUMBER'])
+        self.v_target = CriticV(parameters['HV_NUMBER'])
+
+        self.q1 = CriticQ(parameters['ACTION_NUMBER'], parameters['HV_NUMBER'])
+        self.q2 = CriticQ(parameters['ACTION_NUMBER'], parameters['HV_NUMBER'])
+
+
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=3e-4)
+        self.vf_optimizer = optim.Adam(self.vf.parameters(), lr=3e-4)
+        self.qf_1_optimizer = optim.Adam(self.qf_1.parameters(), lr=3e-4)
+        self.qf_2_optimizer = optim.Adam(self.qf_2.parameters(), lr=3e-4)
+
+
         
     def get_feature( self, im_data=None):
         return self.backbone(im_data)
-    
-    def get_Q(self, feature=None, history_vectory=None):
-        return self.DQN(feature,history_vectory) * 100
-    
-    def get_Q_faze(self, feature=None, history_vectory=None):
-        return self.DQN_faze(feature, history_vectory) * 100
    
 def weights_normal_init(model, dev=0.01):
     if isinstance(model, list):
@@ -183,14 +193,6 @@ def weights_normal_init(model, dev=0.01):
                     m.bias.data.fill_(0)
             elif isinstance(m, nn.Linear):
                 m.weight.data.normal_(0, dev)
-
-
-
-
-
-
-
-
 
 
 class Actor(nn.Module):
@@ -215,7 +217,7 @@ class CriticQ(nn.Module):
         self.conv1 = nn.Conv2d(HV_NUMBER+512, 1024, kernel_size=1, padding=0)
         self.conv2 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
         self.conv3 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
-        self.fc4 = nn.Linear(HV_NUMBER+512+1024, 512)
+        self.fc4 = nn.Linear(ACTION_NUMBER+512+1024, 512)
         self.fc5 = nn.Linear(512, 1)
 
     def forward(self, state, action):
@@ -235,7 +237,7 @@ class CriticV(nn.Module):
         self.conv1 = nn.Conv2d(HV_NUMBER+512, 1024, kernel_size=1, padding=0)
         self.conv2 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
         self.conv3 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
-        self.fc4 = nn.Linear(HV_NUMBER+512+1024, 512)
+        self.fc4 = nn.Linear(512+1024, 512)
         self.fc5 = nn.Linear(512, 1)
 
     def forward(self, state):
