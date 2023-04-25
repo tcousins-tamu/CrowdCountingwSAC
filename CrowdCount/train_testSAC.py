@@ -260,7 +260,7 @@ def train_modelSAC(net, epoch, all_epoches, train_path, replay, optimizer, miner
                         
                         #TODO - Check if I need to create a value target, by converting the Q function to a value func
                         net.value.optimizer.zero_grad()
-                        value_loss = .5*F.mse_loss(value, critic_value)
+                        value_loss = F.mse_loss(value, critic_value)
                         value_loss.backward(retain_graph=True)
                         net.value.optimizer.step()
                         
@@ -303,6 +303,8 @@ def train_modelSAC(net, epoch, all_epoches, train_path, replay, optimizer, miner
                         #TODO - check if I need to update TAU
                         net.update_network_parameters()
                         #NOTE - These deletes were initially in the forward functions of the code
+                        
+                        number_deal+=1
                         del next_state_hv_batch
                         del state_hv_batch 
                         if (image_index%10==1 and print_T==0) or epoch==-1:  
