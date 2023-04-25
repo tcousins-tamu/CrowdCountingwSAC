@@ -176,6 +176,7 @@ class ReplayBuffer(object):
 #SECTION - Supporting networks (in progress)
 #Step Two: Create the Critic Network
 #REVIEW - Ensure that the only changes necessary have been made
+#TODO - Change output dimensions, to match QVF
 class CriticNetwork(nn.Module):
     def __init__(self, beta, input_dims, n_actions, name = "critic", chkpt_dir = "tmp/sac"):
         """_summary_
