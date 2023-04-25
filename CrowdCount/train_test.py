@@ -16,7 +16,7 @@ def train_model(net, epoch, all_epoches, train_path, replay, optimizer, minerror
     train_dir = os.listdir(train_img)      
     train_number = len(train_dir)
   
-    EPSOLON = max(0.1, 1 - epoch * 0.05)
+    EPSILON = max(0.1, 1 - epoch * 0.05)
     net.eval()
     loss_train = 0
     number_deal = 0
@@ -71,7 +71,14 @@ def train_model(net, epoch, all_epoches, train_path, replay, optimizer, minerror
             net.eval()     
                                        
             hv = torch.from_numpy( hv_save.transpose((2, 0, 1)) ).unsqueeze(0).float().cuda()
-                            
+
+            # TODO
+            ##########################
+            #
+            # Change the following Docstring
+            #
+            ##########################
+            '''                
             old_Q = net.get_Q(feature=featuremap_t, history_vectory=hv)
         
             old_qval = old_Q[0].data.cpu().numpy()                                       
@@ -79,6 +86,7 @@ def train_model(net, epoch, all_epoches, train_path, replay, optimizer, minerror
             error_last = abs(den - count_rem)  
             q_t = -old_qval
             sort = q_t.argsort(axis=0)
+            '''
             
             start_ind_random = -1 * np.ones((h, w))
             end_ind_random = -1 * np.ones((h, w))
@@ -107,7 +115,7 @@ def train_model(net, epoch, all_epoches, train_path, replay, optimizer, minerror
         
             action_random = (start_ind_random + (end_ind_random + 2 - start_ind_random ) * np.random.rand(h, w)).astype(np.int8)
             
-            random_select =  (np.random.rand(h, w) < EPSOLON).astype(np.int8)
+            random_select =  (np.random.rand(h, w) < EPSILON).astype(np.int8)
             action_fusion = random_select * action_random + (1-random_select) * action_max
             ######################################reward############################################
             optimal_action = np.zeros((h, w))
@@ -224,6 +232,14 @@ def train_model(net, epoch, all_epoches, train_path, replay, optimizer, minerror
                         next_state_hv_batch = torch.FloatTensor(next_state_hv_batch).cuda().unsqueeze(2).unsqueeze(3)
                         done_mask = torch.FloatTensor(done_mask).cuda().unsqueeze(2).unsqueeze(3)
                         
+
+                        # TODO
+                        ##########################
+                        #
+                        # Change the following Docstring
+                        #
+                        ##########################
+                        '''
                         newQ = net.get_Q_faze(feature=state_fv_batch, history_vectory=next_state_hv_batch)
                         newQ =  newQ.data.max(1)[0].unsqueeze(1)
                         target_Q = newQ * parameters['GAMMA'] * (1 - done_mask) + rew_batch
@@ -238,6 +254,7 @@ def train_model(net, epoch, all_epoches, train_path, replay, optimizer, minerror
                         optimizer.step()  
                         
                         loss_train += loss.item()
+                        '''
                             
                         number_deal = number_deal+1
                                                     
@@ -314,11 +331,20 @@ def test_model(net, epoch, test_path, parameters):
         for step in range(0, parameters['HV_NUMBER']): 
             
             hv = torch.from_numpy(hv_save.transpose((2, 0, 1))).unsqueeze_(0).float().cuda()
-            
+
+
+            # TODO
+            ##########################
+            #
+            # Change the following Docstring
+            #
+            ##########################
+            '''
             Q = net.get_Q(feature=featuremap_t, history_vectory=hv)
                         
             Q = -Q[0].data.cpu().numpy()  
             sort = Q.argsort(axis=0)
+            '''
             
             action_max = np.zeros((ho, wo))
             
@@ -345,7 +371,7 @@ def test_model(net, epoch, test_path, parameters):
         
         count_rem = net.class2num[class_rem.astype(np.int8)]
         est = count_rem.sum()
-        print('Testing {}/{}, GT:{}, EST:{}'.format(i, data_test_number, gt, int(est*100)/100))
+        # print('Testing {}/{}, GT:{}, EST:{}'.format(i, data_test_number, gt, int(est*100)/100))
         count_save[i,0] = gt
         count_save[i,1] = est 
                     
@@ -355,5 +381,3 @@ def test_model(net, epoch, test_path, parameters):
     mae = np.mean(abs(w0 - w1))   
     mse = math.sqrt(sum((w0 - w1) * (w0 - w1)) / data_test_number)
     return mae, mse
-
-    
