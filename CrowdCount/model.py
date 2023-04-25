@@ -170,10 +170,18 @@ class LibraNet(nn.Module):
         self.qf_1_optimizer = optim.Adam(self.qf_1.parameters(), lr=3e-4)
         self.qf_2_optimizer = optim.Adam(self.qf_2.parameters(), lr=3e-4)
 
-
         
     def get_feature( self, im_data=None):
         return self.backbone(im_data)
+    
+
+    def get_Q(self, feature=None, history_vectory=None):
+        return self.DQN(feature,history_vectory) * 100
+    
+    def get_Q_faze(self, feature=None, history_vectory=None):
+        return self.DQN_faze(feature, history_vectory) * 100
+    
+
    
 def weights_normal_init(model, dev=0.01):
     if isinstance(model, list):
@@ -201,13 +209,17 @@ class Actor(nn.Module):
         self.conv1 = nn.Conv2d(HV_NUMBER+512, 1024, kernel_size=1, padding=0)
         self.conv2 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
         self.conv3 = nn.Conv2d(1024, ACTION_NUMBER, kernel_size=1, padding=0)
-        self.max_action = max_action
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                init.xavier_uniform_(m.weight.data)
+                init.constant_(m.bias.data,0.01)
 
 
     def forward(self, state):
         x = nn.functional.relu(self.conv1(state))
         x = nn.functional.relu(self.conv2(x))
-        x = self.max_action * torch.tanh(self.conv3(x))
+        x = self.conv3(x)
         return x
     
     
@@ -219,6 +231,11 @@ class CriticQ(nn.Module):
         self.conv3 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
         self.fc4 = nn.Linear(ACTION_NUMBER+512+1024, 512)
         self.fc5 = nn.Linear(512, 1)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                init.xavier_uniform_(m.weight.data)
+                init.constant_(m.bias.data,0.01)
 
     def forward(self, state, action):
         x = nn.functional.relu(self.conv1(state))
@@ -239,6 +256,11 @@ class CriticV(nn.Module):
         self.conv3 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
         self.fc4 = nn.Linear(512+1024, 512)
         self.fc5 = nn.Linear(512, 1)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                init.xavier_uniform_(m.weight.data)
+                init.constant_(m.bias.data,0.01)
 
     def forward(self, state):
         x = nn.functional.relu(self.conv1(state))
