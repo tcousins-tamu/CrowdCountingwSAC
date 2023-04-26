@@ -205,6 +205,8 @@ class LibraNet(nn.Module):
         self.backbone = VGG16_BackBone()      
         self.actor = Actor(parameters['ACTION_NUMBER'], parameters['HV_NUMBER'])
         
+        self.tau = parameters['TAU']
+        
         self.v = CriticV(parameters['HV_NUMBER'])
         self.v_target = CriticV(parameters['HV_NUMBER'])
         
@@ -215,10 +217,11 @@ class LibraNet(nn.Module):
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=3e-4)
         self.v_optimizer = optim.Adam(self.v.parameters(), lr=3e-4)
         self.vtgt_optimizer = optim.Adam(self.v_target.parameters(), lr=3e-4)
-        self.qf_1_optimizer = optim.Adam(self.qf_1.parameters(), lr=3e-4)
-        self.qf_2_optimizer = optim.Adam(self.qf_2.parameters(), lr=3e-4)
+        self.q1_optimizer = optim.Adam(self.q1.parameters(), lr=3e-4)
+        self.q2_optimizer = optim.Adam(self.q2.parameters(), lr=3e-4)
 
-        
+        self.update_network_parameters(tau = 1)
+                
     def get_feature( self, im_data=None):
         return self.backbone(im_data)
     
@@ -228,8 +231,8 @@ class LibraNet(nn.Module):
             tau = self.tau
         
         #returns the weights and biases of each Value Network along with its layers
-        target_value_params = self.target_value.named_parameters()
-        value_params = self.value.named_parameters()
+        target_value_params = self.v_target.named_parameters()
+        value_params = self.v.named_parameters()
         
         target_value_state_dict = dict(target_value_params)
         value_state_dict  = dict(value_params)
@@ -240,14 +243,16 @@ class LibraNet(nn.Module):
                 (1-tau)*target_value_state_dict[name].clone()
 
     def get_Q(self, feature=None, history_vectory=None):
-        return self.actor(feature,history_vectory) * 100
+        return self.actor(feature, history_vectory) * 100
 
 class Actor(nn.Module):
     def __init__(self, ACTION_NUMBER, HV_NUMBER, max_action=10):
         super(Actor, self).__init__()
-        self.conv1 = nn.Conv2d(HV_NUMBER+512, 1024, kernel_size=1, padding=0)
-        self.conv2 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
-        self.conv3 = nn.Conv2d(1024, ACTION_NUMBER, kernel_size=1, padding=0)
+        self.layer1 = nn.Conv2d(HV_NUMBER+512, 1024, kernel_size=1, padding=0)
+        self.layer2 = nn.ReLU(inplace=True)  
+        self.layer3 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
+        self.layer4 = nn.ReLU(inplace=True)  
+        self.layer5 = nn.Conv2d(1024, ACTION_NUMBER, kernel_size=1, padding=0)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -255,60 +260,87 @@ class Actor(nn.Module):
                 init.constant_(m.bias.data,0.01)
 
 
-    def forward(self, state):
-        x = nn.functional.relu(self.conv1(state))
-        x = nn.functional.relu(self.conv2(x))
-        x = self.conv3(x)
+    def forward(self, x, hv):
+        x = [x,hv]        
+        x = T.cat(x,1)
+        
+        x = self.layer1(x) 
+        x = self.layer2(x) 
+        
+        x = self.layer3(x) 
+        x = self.layer4(x) 
+                
+        x = self.layer5(x) 
         return x
     
     
 class CriticQ(nn.Module):
-    def __init__(self, HV_NUMBER, ACTION_NUMBER):
+    def __init__(self, ACTION_NUMBER, HV_NUMBER):
         super(CriticQ, self).__init__()
-        self.conv1 = nn.Conv2d(HV_NUMBER+512, 1024, kernel_size=1, padding=0)
-        self.conv2 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
-        self.conv3 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
-        self.fc4 = nn.Linear(ACTION_NUMBER+512+1024, 512)
-        self.fc5 = nn.Linear(512, 1)
+        #NOTE - Modifiying this a bit to be closer to how it is done in base libranet
+        self.layer1 = nn.Conv2d(in_channels = HV_NUMBER+512, out_channels = 1024, kernel_size=1, padding=0)
+        self.layer2 = nn.ReLU(inplace=True)  
+        self.layer3 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
+        self.layer4 = nn.ReLU(inplace=True)
+        self.layer5 = nn.Conv2d(1024, ACTION_NUMBER, kernel_size=1, padding=0)
+        self.layer6 = nn.ReLU(inplace=True)
+        self.layer7 = nn.Conv2d(ACTION_NUMBER, 1, kernel_size=1, padding=0)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 init.xavier_uniform_(m.weight.data)
                 init.constant_(m.bias.data,0.01)
 
-    def forward(self, state, action):
-        x = nn.functional.relu(self.conv1(state))
-        x = nn.functional.relu(self.conv2(x))
-        x = nn.functional.relu(self.conv3(x))
-        x = x.view(-1, state.size()[1] + action.size()[1])
-        x = torch.cat((x, action), dim=-1)
-        x = nn.functional.relu(self.fc4(x))
-        value = self.fc5(x)        
-        return value
+    #NOTE - Returned to naming conventions outlined in the paper
+    def forward(self, x, hv):
+        x = [x, hv]
+        x = T.cat(x, 1)
+        # x = nn.functional.relu(self.conv1(x))
+        # x = nn.functional.relu(self.conv2(x))
+        # x = nn.functional.relu(self.conv3(x))
+        # print("THIS IS THE DIMENSIONALITY OF X: ", x.size())
+        # # x = self.fc4(x)
+        # # x = self.fc5(x)
+        # # x = x.view(-1, state.size()[1] + action.size()[1])
+        # x = nn.functional.relu(self.fc4(x))
+        # value = self.fc5(x)        
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.layer5(x)
+        x = self.layer6(x)
+        x = self.layer7(x)
+        return x
     
     
 class CriticV(nn.Module):
     def __init__(self, HV_NUMBER):
         super(CriticV, self).__init__()
-        self.conv1 = nn.Conv2d(HV_NUMBER+512, 1024, kernel_size=1, padding=0)
-        self.conv2 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
-        self.conv3 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
-        self.fc4 = nn.Linear(512+1024, 512)
-        self.fc5 = nn.Linear(512, 1)
-
+        #NOTE - HV Number is super short
+        # self.conv1 = nn.Conv2d(HV_NUMBER, 1024, kernel_size=1, padding=0)
+        # self.conv2 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
+        # self.conv3 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
+        # self.fc4 = nn.Linear(512+1024, 512)
+        # self.fc5 = nn.Linear(512, 1)
+        self.layer1 = nn.Conv2d(in_channels = HV_NUMBER, out_channels = 1024, kernel_size=1, padding=0)
+        self.layer2 = nn.ReLU(inplace=True)  
+        self.layer3 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
+        self.layer4 = nn.ReLU(inplace=True)
+        self.layer5 = nn.Conv2d(1024, 1, kernel_size=1, padding=0)
+        
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 init.xavier_uniform_(m.weight.data)
                 init.constant_(m.bias.data,0.01)
 
-    def forward(self, state):
-        x = nn.functional.relu(self.conv1(state))
-        x = nn.functional.relu(self.conv2(x))
-        x = nn.functional.relu(self.conv3(x))
-        x = x.view(-1, x.size()[1])
-        x = nn.functional.relu(self.fc4(x))
-        value = self.fc5(x)        
-        return value
+    def forward(self, hv):
+        x = self.layer1(hv)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.layer5(x)
+        return x
 
 
 

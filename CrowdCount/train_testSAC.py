@@ -73,7 +73,7 @@ def train_modelSAC(net, epoch, all_epoches, train_path, replay, optimizer, miner
                                        
             hv = torch.from_numpy( hv_save.transpose((2, 0, 1)) ).unsqueeze(0).float().cuda()
                             
-            old_Q = net.get_Q(feature=featuremap_t, history_vectory=hv)
+            old_Q = net.get_Q(featuremap_t, hv)
         
             old_qval = old_Q[0].data.cpu().numpy()                                       
             
@@ -236,7 +236,7 @@ def train_modelSAC(net, epoch, all_epoches, train_path, replay, optimizer, miner
                         act_batch = torch.LongTensor(act_batch).cuda().unsqueeze(2).unsqueeze(3)
                         rew_batch = torch.FloatTensor(rew_batch).cuda().unsqueeze(2).unsqueeze(3)
                         next_state_hv_batch = torch.FloatTensor(next_state_hv_batch).cuda().unsqueeze(2).unsqueeze(3)
-                        done_mask = torch.FloatTensor(done_mask).cuda().unsqueeze(2).unsqueeze(3)
+                        done_mask = torch.LongTensor(done_mask).cuda().unsqueeze(2).unsqueeze(3)
                                                 
                         #NOTE - obtaining the critic value
                         with torch.no_grad():
@@ -252,10 +252,11 @@ def train_modelSAC(net, epoch, all_epoches, train_path, replay, optimizer, miner
                             #targets = rew_batch.unsqueeze(1) + parameters['GAMMA'] * (1 - done_mask.unsqueeze(1)) * critic_value
 
                         #TODO - Ensure that I want to be using hv vectors.
-                        value = net.value(state_hv_batch).view(-1)
-                        value_ = net.target_value(next_state_hv_batch).view(-1)
+                        value = net.v(state_hv_batch).view(-1)
+                        value_ = net.v_target(next_state_hv_batch).view(-1)
                         #TODO - Figure out how to do this with the elements in CUDA vs CPU
-                        value_[done_mask] = 0.0
+
+                        value_[done_mask.unsqueeze(1)] = 0.0
                         
                         #TODO - DETERMINE IF I WANT TO MODIFY THE CRITIC VALUE PRIOR TO THIS STEP
                         net.v_optimizer.zero_grad()
@@ -284,8 +285,8 @@ def train_modelSAC(net, epoch, all_epoches, train_path, replay, optimizer, miner
                         net.actor_optimizer.step()
                         
                         #TODO - Ensure That I am updating critic networks properly
-                        net.qf_1_optimizer.zero_grad()
-                        net.qf_2_optimizer.zero_grad()
+                        net.q1_optimizer.zero_grad()
+                        net.q2_optimizer.zero_grad()
                         #TODO - Determine if my soft update equation is correct
                         q_hat = parameters['SCALE']*rew_batch + parameters['GAMMA']*value_
                         q1_old = net.q1(state_fv_batch, state_hv_batch)
@@ -296,8 +297,8 @@ def train_modelSAC(net, epoch, all_epoches, train_path, replay, optimizer, miner
                         q2_loss = .5*F.mse_loss(q2_old, q_hat)
                         q_sum_loss = q1_loss + q2_loss
                         q_sum_loss.backward()
-                        net.qf_1_optimizer.step() #graphs are retained, based on earlier examples
-                        net.qf_2_optimizer.step()
+                        net.q1_optimizer.step() #graphs are retained, based on earlier examples
+                        net.q2_optimizer.step()
                         
                         #TODO - check if I need to update TAU VERIFY THE UPDATE NETWORK PARAMETERS SECTION
                         net.update_network_parameters()

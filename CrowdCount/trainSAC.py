@@ -14,7 +14,7 @@ from pathlib import Path
 # =============================================================================
 # creatived package
 # =============================================================================
-from LibranetSAC import LibraNetSAC, weights_normal_init
+from LibranetSAC import LibraNet, weights_normal_init
 from buffer import ReplayBuffer
 from train_testSAC import train_modelSAC, test_model
 
@@ -65,7 +65,7 @@ minerror = np.zeros(2)
 minerror[0] = 9999
 minerror[1] = 9999
 
-net = LibraNetSAC(parameters) 
+net = LibraNet(parameters) 
 weights_normal_init(net, 0.01) 
 
 if not Path("model_ckpt.pth.tar").is_file():
