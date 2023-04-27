@@ -15,7 +15,8 @@ def train_modelSAC(net, epoch, all_epoches, train_path, replay, optimizer, miner
     train_img = train_path + 'image/'
     train_gt = train_path + 'gt_classmap/'
     train_dir = os.listdir(train_img)      
-    train_number = len(train_dir)
+    train_number = 100
+    #train_number = len(train_dir)
   
     EPSOLON = max(0.1, 1 - epoch * 0.05)
     net.eval()
@@ -234,13 +235,14 @@ def train_modelSAC(net, epoch, all_epoches, train_path, replay, optimizer, miner
                         state_fv_batch = torch.FloatTensor(state_fv_batch).cuda().unsqueeze(2).unsqueeze(3)
                         state_hv_batch = torch.FloatTensor(state_hv_batch).cuda().unsqueeze(2).unsqueeze(3)
                         act_batch = torch.LongTensor(act_batch).cuda().unsqueeze(2).unsqueeze(3)
-                        rew_batch = torch.FloatTensor(rew_batch).cuda().unsqueeze(2).unsqueeze(3)
+                        rew_batch = torch.FloatTensor(rew_batch).cuda() #.unsqueeze(2).unsqueeze(3)
                         next_state_hv_batch = torch.FloatTensor(next_state_hv_batch).cuda().unsqueeze(2).unsqueeze(3)
-                        done_mask = torch.LongTensor(done_mask).cuda().unsqueeze(2).unsqueeze(3)
+                        done_mask = torch.FloatTensor(done_mask).cuda() #.unsqueeze(2).unsqueeze(3)
+
+                        
                                                 
                         #NOTE - obtaining the critic value
                         with torch.no_grad():
-                            #TODO -  determine if I am doing this correctly, I would have done forward but I had no way of knowing what was optimal decisions
                             #check if I want to use next state for critics
                             q1_eval = net.q1(state_fv_batch, next_state_hv_batch)
                             q1_eval = q1_eval.data.max(1)[0].unsqueeze(1)
@@ -248,63 +250,66 @@ def train_modelSAC(net, epoch, all_epoches, train_path, replay, optimizer, miner
                             q2_eval = net.q2(state_fv_batch, next_state_hv_batch)
                             q2_eval = q2_eval.data.max(1)[0].unsqueeze(1)
                                                         
-                            critic_value = torch.min(q1_eval, q2_eval)
-                            #targets = rew_batch.unsqueeze(1) + parameters['GAMMA'] * (1 - done_mask.unsqueeze(1)) * critic_value
+                            critic_value = torch.min(q1_eval, q2_eval).flatten()
 
-                        #TODO - Ensure that I want to be using hv vectors.
+                        q1_old = net.q1(state_fv_batch, state_hv_batch) 
+                        q2_old = net.q2(state_fv_batch, state_hv_batch)
+                        minq = torch.min(q1_old, q2_old)
+                        
                         value = net.v(state_hv_batch).view(-1)
                         value_ = net.v_target(next_state_hv_batch).view(-1)
-                        #TODO - Figure out how to do this with the elements in CUDA vs CPU
+                        value_target = value_ * parameters['GAMMA'] * (1 - done_mask.flatten()) + rew_batch.flatten()
 
-                        value_[done_mask.unsqueeze(1)] = 0.0
-                        
-                        #TODO - DETERMINE IF I WANT TO MODIFY THE CRITIC VALUE PRIOR TO THIS STEP
+                        # value_[done_mask.unsqueeze(1)] = 0.0
+                        #NOTE: Verify the value target calculation
                         net.v_optimizer.zero_grad()
-                        value_loss = F.mse_loss(value, critic_value)
+                        value_loss = F.mse_loss(value, value_target)
                         value_loss.backward(retain_graph=True)
                         net.v_optimizer.step()
                         
-                        #TODO - Detemine if I need to reclculate the policies
-                        # q1_new_policy = net.critic_1.forward(state_fv_batch, act_batch)
-                        # q2_new_policy = net.critic_2.forward(state_fv_batch, act_batch)
-                        # critic_value = torch.min(q1_new_policy, q2_new_policy)
-                        # critic_value = critic_value.view(-1)
                         
-                        #TODO - Determine if I am calculating actor loss correctly                        
+                        #NOTE: Updated the actor loss calcultion
                         # actor_loss = critic_value - rew_batch
-                        a_policy = net.actor(state_fv_batch, state_hv_batch)
-                        a_policy = a_policy.gather(1, act_batch)
-                        
-                        #TODO - Determine if structures are correct, determine if loss is correct
-                        #TODO - Determine if all models needs a different learning rate like the actor per epoch
-                        actor_loss = torch.mean(a_policy - critic_value) 
+                        actorQ = net.actor(state_fv_batch, state_hv_batch)
+                        # actorQ = actorQ.gather(1, act_batch)
+                        action_prob = F.softmax(actorQ, dim=-1).squeeze(3).squeeze(2)
+
+                        # action = action_prob.multinomial(num_samples=1)
+                        log_prob = action_prob.log() #.gather(1, action.unsqueeze(1)).squeeze(1)
+ 
+                        tgt_actor = minq - parameters['ALPHA']*log_prob.detach()
+                        actor_loss = ( log_prob*parameters["ALPHA"] - tgt_actor).mean() #This is the soft update parameter
                         net.actor_optimizer.zero_grad()
                         #net.actor.optimizer.zero_grad()
-                        actor_loss.backward(retain_graph=True)
+                        actor_loss.backward(retain_graph = True)
                         #net.actor.optimizer.step()
                         net.actor_optimizer.step()
                         
-                        #TODO - Ensure That I am updating critic networks properly
+                        #print("LOG_PROBS: ", action_prob.mean().detach(), " ACTOR Q: ", actorQ.mean(), "ACTOR LOSS: ", actor_loss)
+                        
                         net.q1_optimizer.zero_grad()
                         net.q2_optimizer.zero_grad()
-                        #TODO - Determine if my soft update equation is correct
-                        q_hat = parameters['SCALE']*rew_batch + parameters['GAMMA']*value_
-                        q1_old = net.q1(state_fv_batch, state_hv_batch)
-                        q1_old  = q1_old.data.max(1)[0].unsqueeze(1)      
-                        q2_old = net.q2(state_fv_batch, state_hv_batch)
-                        q2_old = q2_old.data.max(1)[0].unsqueeze(1)
-                        q1_loss = .5*F.mse_loss(q1_old, q_hat)
-                        q2_loss = .5*F.mse_loss(q2_old, q_hat)
+                        #NOTE: Updated the Qtarget and its loss needs to be with respect to the QVF next state
+                        #NOTE: Got rid of scale parameter parameters['SCALE']*
+                        q_target = rew_batch.flatten() + parameters['GAMMA']*(1-done_mask.flatten())*critic_value.flatten()
+                        q_target = q_target.unsqueeze(1).unsqueeze(2).unsqueeze(3)
+
+                        q1_loss = .5*F.mse_loss(q1_old, q_target)
+                        q2_loss = .5*F.mse_loss(q2_old, q_target)
                         q_sum_loss = q1_loss + q2_loss
-                        q_sum_loss.backward()
+                        
+                        q_sum_loss.backward() #NOTE - need to look into the sum loss
                         net.q1_optimizer.step() #graphs are retained, based on earlier examples
                         net.q2_optimizer.step()
                         
-                        #TODO - check if I need to update TAU VERIFY THE UPDATE NETWORK PARAMETERS SECTION
-                        net.update_network_parameters()
+                        #net.update_network_parameters()
                         #NOTE - These deletes were initially in the forward functions of the code
                         
+                        #print("VALUE LOSS: {} ACTOR LOSS: {} Q1 LOSS: {} Q2 LOSS: {} VALUE OUT: {} CRITIC OUT: {}".format(value_loss, actor_loss, q1_loss, q2_loss, value.shape, critic_value.shape))
                         number_deal+=1
+                        
+                        # print("ACTOR ESTIMATE: {}".format(action_prob))
+                        loss_train += actor_loss.item()
                         del next_state_hv_batch
                         del state_hv_batch 
                         if (image_index%10==1 and print_T==0) or epoch==-1:  
@@ -380,12 +385,12 @@ def test_model(net, epoch, test_path, parameters):
             hv = torch.from_numpy(hv_save.transpose((2, 0, 1))).unsqueeze_(0).float().cuda()
             
             Q = net.get_Q(feature=featuremap_t, history_vectory=hv)
-                        
+            del hv
             Q = -Q[0].data.cpu().numpy()  
             sort = Q.argsort(axis=0)
             
             action_max = np.zeros((ho, wo))
-            
+
             mask_max_find = np.zeros((ho,wo))
             for recycle_ind in range(0,parameters['ACTION_NUMBER']):
                 maskselect_end = (sort[recycle_ind] == parameters['ACTION_NUMBER']-1)
@@ -401,6 +406,7 @@ def test_model(net, epoch, test_path, parameters):
             class_rem = class_rem + (1 - mask_select_end) * (1 - mask_last) * (np.squeeze(net.A_mat_h_w[action_max.astype(np.int8)]))
             
             hv_save[:, :, step] = action_max+1 
+            # print("MAXIMUM ACTION:", (action_max+1).mean())
             mask_now = mask_last.copy()
             mask_now = mask_now | mask_select_end
             mask_last = mask_now.copy()
@@ -412,7 +418,7 @@ def test_model(net, epoch, test_path, parameters):
         print('Testing {}/{}, GT:{}, EST:{}'.format(i, data_test_number, gt, int(est*100)/100))
         count_save[i,0] = gt
         count_save[i,1] = est 
-                    
+                             
     w0 = count_save[:,0]
     w1 = count_save[:,1]
     

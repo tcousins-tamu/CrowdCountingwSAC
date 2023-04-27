@@ -46,7 +46,7 @@ parameters = {'TRAIN_SKIP':100,
              "ALPHA":0.0003, #Learning rate for actor network
              "BETA":0.0003, #Learning rate for critic network
              "TAU":0.005,  #Soft Update Parameter
-             "SCALE":2 #reward scale
+             "SCALE":1 #reward scale
              }
 # =============================================================================
 # Path setting
@@ -95,7 +95,8 @@ for epoch in range(epoch_last, all_epoches):
     #TODO - Figure out the equilency to the below statement
     # net.DQN_faze.load_state_dict(net.DQN.state_dict())
     #NOTE - This is the optimizer used for this implementation. Need to double check if it is doing what i think it is.
-    optimizer = optim.SGD([{'params':net.actor.parameters(), 'lr':learning_rate[epoch]}])
+    #optimizer = optim.SGD([{'params':net.actor.parameters(), 'lr':learning_rate[epoch]}])
+    optimizer = None
     #For SAC we will need additional optimizers, however in my implementation, they are in the classes.
     
     train_modelSAC(net, epoch, all_epoches, train_path, replay, optimizer, minerror, parameters)

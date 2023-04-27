@@ -220,27 +220,27 @@ class LibraNet(nn.Module):
         self.q1_optimizer = optim.Adam(self.q1.parameters(), lr=3e-4)
         self.q2_optimizer = optim.Adam(self.q2.parameters(), lr=3e-4)
 
-        self.update_network_parameters(tau = 1)
+        # self.update_network_parameters(tau = 1)
                 
     def get_feature( self, im_data=None):
         return self.backbone(im_data)
     
     #Im not positive on the use of this function, so Im leaving it here for the soft actor critic update when we get round to it
-    def update_network_parameters(self, tau = None):
-        if tau is None:
-            tau = self.tau
+    # def update_network_parameters(self, tau = None):
+    #     if tau is None:
+    #         tau = self.tau
         
-        #returns the weights and biases of each Value Network along with its layers
-        target_value_params = self.v_target.named_parameters()
-        value_params = self.v.named_parameters()
+    #     #returns the weights and biases of each Value Network along with its layers
+    #     target_value_params = self.v_target.named_parameters()
+    #     value_params = self.v.named_parameters()
         
-        target_value_state_dict = dict(target_value_params)
-        value_state_dict  = dict(value_params)
+    #     target_value_state_dict = dict(target_value_params)
+    #     value_state_dict  = dict(value_params)
         
-        #Going through each layer and performing a SOFT update
-        for name in value_state_dict:
-            value_state_dict[name]  = tau*value_state_dict[name].clone() + \
-                (1-tau)*target_value_state_dict[name].clone()
+    #     #Going through each layer and performing a SOFT update
+    #     for name in value_state_dict:
+    #         value_state_dict[name]  = tau*value_state_dict[name].clone() + \
+    #             (1-tau)*target_value_state_dict[name].clone()
 
     def get_Q(self, feature=None, history_vectory=None):
         return self.actor(feature, history_vectory) * 100
@@ -294,16 +294,7 @@ class CriticQ(nn.Module):
     #NOTE - Returned to naming conventions outlined in the paper
     def forward(self, x, hv):
         x = [x, hv]
-        x = T.cat(x, 1)
-        # x = nn.functional.relu(self.conv1(x))
-        # x = nn.functional.relu(self.conv2(x))
-        # x = nn.functional.relu(self.conv3(x))
-        # print("THIS IS THE DIMENSIONALITY OF X: ", x.size())
-        # # x = self.fc4(x)
-        # # x = self.fc5(x)
-        # # x = x.view(-1, state.size()[1] + action.size()[1])
-        # x = nn.functional.relu(self.fc4(x))
-        # value = self.fc5(x)        
+        x = T.cat(x, 1)   
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
