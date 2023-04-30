@@ -33,7 +33,6 @@ except AttributeError:
 parameters = {'TRAIN_SKIP':100,
              'BUFFER_LENGTH':10000,
              'ERROR_RANGE':0.5,
-             'GAMMA':0.9,
              'batch_size':128,
              'Interval_N':57,
              'step_log':0.1,
@@ -43,10 +42,11 @@ parameters = {'TRAIN_SKIP':100,
              'ERROR_SYSTEM':0,
              'means':[[108.25673428], [ 97.02240046], [ 93.37483706]],
              #Additional parameters for SAC
-             "ALPHA":0.0003, #Learning rate for actor network
-             "BETA":0.0003, #Learning rate for critic network
-             "TAU":0.005,  #Soft Update Parameter
-             "SCALE":1 #reward scale
+             "ALPHA": .1, #Learning rate for actor network
+            #  "BETA":0.9, #Learning rate for critic network
+            #  "TAU":.9,  #Soft Update Parameter
+             'GAMMA':0.1,
+             "lr": .3 #Learning rate for networks
              }
 # =============================================================================
 # Path setting
@@ -98,7 +98,6 @@ for epoch in range(epoch_last, all_epoches):
     #optimizer = optim.SGD([{'params':net.actor.parameters(), 'lr':learning_rate[epoch]}])
     optimizer = None
     #For SAC we will need additional optimizers, however in my implementation, they are in the classes.
-    
     train_modelSAC(net, epoch, all_epoches, train_path, replay, optimizer, minerror, parameters)
     mae,mse = test_model(net, epoch, test_path, parameters)
     

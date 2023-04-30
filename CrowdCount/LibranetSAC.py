@@ -205,7 +205,7 @@ class LibraNet(nn.Module):
         self.backbone = VGG16_BackBone()      
         self.actor = Actor(parameters['ACTION_NUMBER'], parameters['HV_NUMBER'])
         
-        self.tau = parameters['TAU']
+        #self.tau = parameters['TAU']
         
         self.v = CriticV(parameters['HV_NUMBER'])
         self.v_target = CriticV(parameters['HV_NUMBER'])
@@ -214,11 +214,11 @@ class LibraNet(nn.Module):
         self.q2 = CriticQ(parameters['ACTION_NUMBER'], parameters['HV_NUMBER'])
         
         #optimizers
-        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=3e-4)
-        self.v_optimizer = optim.Adam(self.v.parameters(), lr=3e-4)
-        self.vtgt_optimizer = optim.Adam(self.v_target.parameters(), lr=3e-4)
-        self.q1_optimizer = optim.Adam(self.q1.parameters(), lr=3e-4)
-        self.q2_optimizer = optim.Adam(self.q2.parameters(), lr=3e-4)
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr = parameters['lr'])
+        self.v_optimizer = optim.Adam(self.v.parameters(),lr = parameters['lr'])
+        self.vtgt_optimizer = optim.Adam(self.v_target.parameters(), lr = parameters['lr'])
+        self.q1_optimizer = optim.Adam(self.q1.parameters(), lr = parameters['lr'])
+        self.q2_optimizer = optim.Adam(self.q2.parameters(), lr = parameters['lr'])
 
         # self.update_network_parameters(tau = 1)
                 
@@ -243,10 +243,10 @@ class LibraNet(nn.Module):
     #             (1-tau)*target_value_state_dict[name].clone()
 
     def get_Q(self, feature=None, history_vectory=None):
-        return self.actor(feature, history_vectory) * 100
+        return self.actor(feature, history_vectory)
 
 class Actor(nn.Module):
-    def __init__(self, ACTION_NUMBER, HV_NUMBER, max_action=10):
+    def __init__(self, ACTION_NUMBER, HV_NUMBER):
         super(Actor, self).__init__()
         self.layer1 = nn.Conv2d(HV_NUMBER+512, 1024, kernel_size=1, padding=0)
         self.layer2 = nn.ReLU(inplace=True)  

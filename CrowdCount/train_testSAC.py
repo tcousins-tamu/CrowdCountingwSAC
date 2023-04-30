@@ -15,7 +15,7 @@ def train_modelSAC(net, epoch, all_epoches, train_path, replay, optimizer, miner
     train_img = train_path + 'image/'
     train_gt = train_path + 'gt_classmap/'
     train_dir = os.listdir(train_img)      
-    train_number = 100
+    train_number = 110
     #train_number = len(train_dir)
   
     EPSOLON = max(0.1, 1 - epoch * 0.05)
@@ -239,68 +239,64 @@ def train_modelSAC(net, epoch, all_epoches, train_path, replay, optimizer, miner
                         next_state_hv_batch = torch.FloatTensor(next_state_hv_batch).cuda().unsqueeze(2).unsqueeze(3)
                         done_mask = torch.FloatTensor(done_mask).cuda() #.unsqueeze(2).unsqueeze(3)
 
-                        
-                                                
-                        #NOTE - obtaining the critic value
-                        with torch.no_grad():
-                            #check if I want to use next state for critics
-                            q1_eval = net.q1(state_fv_batch, next_state_hv_batch)
-                            q1_eval = q1_eval.data.max(1)[0].unsqueeze(1)
-                            
-                            q2_eval = net.q2(state_fv_batch, next_state_hv_batch)
-                            q2_eval = q2_eval.data.max(1)[0].unsqueeze(1)
-                                                        
-                            critic_value = torch.min(q1_eval, q2_eval).flatten()
-
-                        q1_old = net.q1(state_fv_batch, state_hv_batch) 
-                        q2_old = net.q2(state_fv_batch, state_hv_batch)
-                        minq = torch.min(q1_old, q2_old)
-                        
+                        #SECTION - Value network update
+                        net.v_optimizer.zero_grad()
                         value = net.v(state_hv_batch).view(-1)
                         value_ = net.v_target(next_state_hv_batch).view(-1)
                         value_target = value_ * parameters['GAMMA'] * (1 - done_mask.flatten()) + rew_batch.flatten()
-
-                        # value_[done_mask.unsqueeze(1)] = 0.0
-                        #NOTE: Verify the value target calculation
-                        net.v_optimizer.zero_grad()
                         value_loss = F.mse_loss(value, value_target)
-                        value_loss.backward(retain_graph=True)
+                        value_loss.backward() #retain_graph = True
                         net.v_optimizer.step()
                         
-                        
-                        #NOTE: Updated the actor loss calcultion
-                        # actor_loss = critic_value - rew_batch
-                        actorQ = net.actor(state_fv_batch, state_hv_batch)
-                        # actorQ = actorQ.gather(1, act_batch)
-                        action_prob = F.softmax(actorQ, dim=-1).squeeze(3).squeeze(2)
-
-                        # action = action_prob.multinomial(num_samples=1)
-                        log_prob = action_prob.log() #.gather(1, action.unsqueeze(1)).squeeze(1)
- 
-                        tgt_actor = minq - parameters['ALPHA']*log_prob.detach()
-                        actor_loss = ( log_prob*parameters["ALPHA"] - tgt_actor).mean() #This is the soft update parameter
+                        #SECTION - Actor Loss Calculation/actor update
+                        #STEP ONE: Choosing the minimum Q-value function
+                        q1_old = net.q1(state_fv_batch, state_hv_batch) 
+                        q2_old = net.q2(state_fv_batch, state_hv_batch)
+                        minq = torch.min(q1_old, q2_old)
+                        #NOTE: Reimplementing the actor loss calcualtion
                         net.actor_optimizer.zero_grad()
-                        #net.actor.optimizer.zero_grad()
-                        actor_loss.backward(retain_graph = True)
-                        #net.actor.optimizer.step()
+                        actorQ = net.actor(state_fv_batch, state_hv_batch)
+                        actorProbs = F.softmax(actorQ, dim=-1).squeeze()
+                        # print(actorProbs.shape)
+                        actions = torch.multinomial(actorProbs, 1).squeeze()
+                        action_prob = actorProbs.gather(1, actions.unsqueeze(1)).squeeze()
+                        entropy = -(actorProbs * torch.log(actorProbs)).sum(-1).mean()
+                        # actorDist = torch.distributions.Categorical(logits=actorQ)
+                        # actions = actorDist.sample()
+                        # log_prob = actorDist.log_prob(actions)
+                        #entropy = actorDist.entropy().mean()
+                        # print(action_prob.mean(), minq.mean(), value.mean(), entropy.mean())
+                        actor_loss = (action_prob*(minq - value.detach() + parameters["ALPHA"]*entropy)).mean()
+                        actor_loss.backward(retain_graph = True) #retain_graph = True
                         net.actor_optimizer.step()
+
+                        #SECTION - Critic Network Updates
+                        with torch.no_grad():
+                            q1_eval = net.q1(state_fv_batch, next_state_hv_batch)
+                            #q1_eval = q1_eval.data.max(1)[0].unsqueeze(1)
+                            q1_eval = q1_eval.detach().max(1)[0].unsqueeze(1)
+                            
+                            q2_eval = net.q2(state_fv_batch, next_state_hv_batch)
+                            q2_eval = q2_eval.detach().max(1)[0].unsqueeze(1)
                         
-                        #print("LOG_PROBS: ", action_prob.mean().detach(), " ACTOR Q: ", actorQ.mean(), "ACTOR LOSS: ", actor_loss)
+                            #Minimum critic is used to prevent overestimation             
+                            critic_value = torch.min(q1_eval, q2_eval).flatten()
+                            
+                            q_target = rew_batch.flatten() + parameters['GAMMA']*(1-done_mask.flatten())*(critic_value.flatten() - parameters["ALPHA"]*entropy.flatten())
+                            q_target = q_target.unsqueeze(1).unsqueeze(2).unsqueeze(3)
                         
                         net.q1_optimizer.zero_grad()
                         net.q2_optimizer.zero_grad()
-                        #NOTE: Updated the Qtarget and its loss needs to be with respect to the QVF next state
-                        #NOTE: Got rid of scale parameter parameters['SCALE']*
-                        q_target = rew_batch.flatten() + parameters['GAMMA']*(1-done_mask.flatten())*critic_value.flatten()
-                        q_target = q_target.unsqueeze(1).unsqueeze(2).unsqueeze(3)
-
+                        
                         q1_loss = .5*F.mse_loss(q1_old, q_target)
                         q2_loss = .5*F.mse_loss(q2_old, q_target)
                         q_sum_loss = q1_loss + q2_loss
                         
-                        q_sum_loss.backward() #NOTE - need to look into the sum loss
+                        #NOTE ADD THIS BACK ONCE ITS DETERMINED WHETHER IT IS OVERWRITING THE ACTOR
+                        q_sum_loss.backward(retain_graph = True) #NOTE - need to look into the sum loss
                         net.q1_optimizer.step() #graphs are retained, based on earlier examples
                         net.q2_optimizer.step()
+                        
                         
                         #net.update_network_parameters()
                         #NOTE - These deletes were initially in the forward functions of the code
@@ -308,10 +304,12 @@ def train_modelSAC(net, epoch, all_epoches, train_path, replay, optimizer, miner
                         #print("VALUE LOSS: {} ACTOR LOSS: {} Q1 LOSS: {} Q2 LOSS: {} VALUE OUT: {} CRITIC OUT: {}".format(value_loss, actor_loss, q1_loss, q2_loss, value.shape, critic_value.shape))
                         number_deal+=1
                         
-                        # print("ACTOR ESTIMATE: {}".format(action_prob))
+                        # print("Trained one iter")
                         loss_train += actor_loss.item()
+                        # print("ACTOR LOSS THIS ITERATION: ", actor_loss.item())
                         del next_state_hv_batch
                         del state_hv_batch 
+                        net.eval()
                         if (image_index%10==1 and print_T==0) or epoch==-1:  
                             print_T=1
                             print('Epoch:{}/{},image:{}/{},speed:{:.2f},Mae:{:.2f},Mse:{:.2f}, loss:{:.3f}'.format(
