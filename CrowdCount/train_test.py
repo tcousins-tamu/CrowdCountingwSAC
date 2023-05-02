@@ -87,7 +87,19 @@ def train_model(net, epoch, all_epoches, train_path, replay, optimizer, minerror
             q_t = -old_qval
             sort = q_t.argsort(axis=0)
             '''
+
+            old_Q, _ = net.get_Q(torch.cat([featuremap_t, hv],1))
+            old_Q = old_Q * 100
+        
+            old_qval = old_Q[0].data.cpu().numpy()                                       
             
+            error_last = abs(den - count_rem)  
+            q_t = -old_qval
+            sort = q_t.argsort(axis=0)
+            
+
+
+
             start_ind_random = -1 * np.ones((h, w))
             end_ind_random = -1 * np.ones((h, w))
             
@@ -255,6 +267,77 @@ def train_model(net, epoch, all_epoches, train_path, replay, optimizer, minerror
                         
                         loss_train += loss.item()
                         '''
+
+                        # torch.cat([state_fv_batch, state_hv_batch],1)
+
+                        new_action, log_prob = net.actor(torch.cat([state_fv_batch, state_hv_batch],1))
+
+                        # train alpha (dual problem)
+                        alpha_loss = (
+                            -net.log_alpha.exp() * (log_prob + net.target_entropy).detach()
+                        ).mean()
+
+                        net.alpha_optimizer.zero_grad()
+                        alpha_loss.backward()
+                        net.alpha_optimizer.step()
+                        
+                        alpha = net.log_alpha.exp()  # used for the actor loss calculation
+
+
+
+
+
+                        # q function loss
+                        mask = 1 - done_mask
+                        q1_pred = net.q1(torch.cat([state_fv_batch, state_hv_batch],1), act_batch)
+                        q2_pred = net.q2(torch.cat([state_fv_batch, state_hv_batch],1), act_batch)
+                        v_target = net.v_target(torch.cat([state_fv_batch, next_state_hv_batch],1))
+                        q_target = rew_batch + net.gamma * v_target * mask
+                        q1_loss = F.mse_loss(q1_pred, q_target.detach())
+                        q2_loss = F.mse_loss(q2_pred, q_target.detach())
+                        
+                        # v function loss
+                        v_pred = net.v(torch.cat([state_fv_batch, state_hv_batch],1))
+                        q_pred = torch.min(
+                            net.q1(torch.cat([state_fv_batch, state_hv_batch],1), new_action), net.q2(torch.cat([state_fv_batch, state_hv_batch],1), new_action)
+                        )
+                        v_target = q_pred - alpha * log_prob
+                        v_loss = F.mse_loss(v_pred, v_target.detach())
+                        
+                        # actor loss
+                        advantage = q_pred - v_pred.detach()
+                        actor_loss = (alpha * log_prob - advantage).mean()
+                        
+                        # train actor
+                        net.actor_optimizer.zero_grad()
+                        actor_loss.backward()
+                        net.actor_optimizer.step()
+                    
+                        # target update (vf)
+                        for t_param, l_param in zip(net.v_target.parameters(), net.v.parameters()):
+                            t_param.data.copy_(5e-3 * l_param.data + (1.0 - 5e-3) * t_param.data)
+
+                            
+                        # train Q functions
+                        net.q1_optimizer.zero_grad()
+                        q1_loss.backward()
+                        net.q1_optimizer.step()
+
+                        net.q2_optimizer.zero_grad()
+                        q2_loss.backward()
+                        net.q2_optimizer.step()
+                        
+                        # train V function
+                        net.v_optimizer.zero_grad()
+                        v_loss.backward()
+                        net.v_optimizer.step()
+
+
+
+
+
+
+
                             
                         number_deal = number_deal+1
                                                     
@@ -345,6 +428,13 @@ def test_model(net, epoch, test_path, parameters):
             Q = -Q[0].data.cpu().numpy()  
             sort = Q.argsort(axis=0)
             '''
+
+            Q, _ = net.get_Q(torch.cat([featuremap_t, hv],1))
+            Q = Q * 100
+                        
+            Q = -Q[0].data.cpu().numpy()  
+            sort = Q.argsort(axis=0)
+
             
             action_max = np.zeros((ho, wo))
             

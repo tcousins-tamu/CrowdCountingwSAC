@@ -166,9 +166,17 @@ class LibraNet(nn.Module):
 
 
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=3e-4)
-        self.vf_optimizer = optim.Adam(self.vf.parameters(), lr=3e-4)
-        self.qf_1_optimizer = optim.Adam(self.qf_1.parameters(), lr=3e-4)
-        self.qf_2_optimizer = optim.Adam(self.qf_2.parameters(), lr=3e-4)
+        self.v_optimizer = optim.Adam(self.vf.parameters(), lr=3e-4)
+        self.q1_optimizer = optim.Adam(self.qf_1.parameters(), lr=3e-4)
+        self.q2_optimizer = optim.Adam(self.qf_2.parameters(), lr=3e-4)
+
+
+        self.target_entropy = -np.prod((len(self.A),)).item()  # heuristic
+        self.log_alpha = torch.zeros(1, requires_grad=True).cuda()
+        self.alpha_optimizer = optim.Adam([self.log_alpha], lr=3e-4)
+
+        self.total_step = 0
+        self.gamma = parameters['GAMMA']
 
         
     def get_feature( self, im_data=None):
@@ -176,10 +184,10 @@ class LibraNet(nn.Module):
     
 
     def get_Q(self, feature=None, history_vectory=None):
-        return self.DQN(feature,history_vectory) * 100
+        return self.actor(feature)
     
-    def get_Q_faze(self, feature=None, history_vectory=None):
-        return self.DQN_faze(feature, history_vectory) * 100
+    # def get_Q_faze(self, feature=None, history_vectory=None):
+    #     return self.DQN_faze(feature, history_vectory) * 100
     
 
    
@@ -220,7 +228,28 @@ class Actor(nn.Module):
         x = nn.functional.relu(self.conv1(state))
         x = nn.functional.relu(self.conv2(x))
         x = self.conv3(x)
-        return x
+
+        # get mean
+        mu = self.mu_layer(x).tanh()
+        
+        # get std
+        log_std = self.log_std_layer(x).tanh()
+        log_std = self.log_std_min + 0.5 * (
+            self.log_std_max - self.log_std_min
+        ) * (log_std + 1)
+        std = torch.exp(log_std)
+        
+        # sample actions
+        dist = Normal(mu, std)
+        z = dist.rsample()
+        
+        # normalize action and log_prob
+        # see appendix C of [2]
+        action = z.tanh()
+        log_prob = dist.log_prob(z) - torch.log(1 - action.pow(2) + 1e-7)
+        log_prob = log_prob.sum(-1, keepdim=True)
+
+        return action, log_prob
     
     
 class CriticQ(nn.Module):
