@@ -9,6 +9,7 @@ import torch
 import torch.nn.init as init
 from torch.utils.checkpoint import checkpoint   
 import numpy as np
+from torch.distributions import Normal
 
 class VGG16_BackBone(nn.Module):
     def __init__(self):
@@ -166,13 +167,13 @@ class LibraNet(nn.Module):
 
 
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=3e-4)
-        self.v_optimizer = optim.Adam(self.vf.parameters(), lr=3e-4)
-        self.q1_optimizer = optim.Adam(self.qf_1.parameters(), lr=3e-4)
-        self.q2_optimizer = optim.Adam(self.qf_2.parameters(), lr=3e-4)
+        self.v_optimizer = optim.Adam(self.v.parameters(), lr=3e-4)
+        self.q1_optimizer = optim.Adam(self.q1.parameters(), lr=3e-4)
+        self.q2_optimizer = optim.Adam(self.q2.parameters(), lr=3e-4)
 
 
         self.target_entropy = -np.prod((len(self.A),)).item()  # heuristic
-        self.log_alpha = torch.zeros(1, requires_grad=True).cuda()
+        self.log_alpha = torch.zeros(1, requires_grad=True, device='cuda')
         self.alpha_optimizer = optim.Adam([self.log_alpha], lr=3e-4)
 
         self.total_step = 0
@@ -217,6 +218,7 @@ class Actor(nn.Module):
         self.conv1 = nn.Conv2d(HV_NUMBER+512, 1024, kernel_size=1, padding=0)
         self.conv2 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
         self.conv3 = nn.Conv2d(1024, ACTION_NUMBER, kernel_size=1, padding=0)
+        self.mu_layer = nn.Conv2d(1024, ACTION_NUMBER, kernel_size=1, padding=0)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -227,16 +229,13 @@ class Actor(nn.Module):
     def forward(self, state):
         x = nn.functional.relu(self.conv1(state))
         x = nn.functional.relu(self.conv2(x))
-        x = self.conv3(x)
 
         # get mean
-        mu = self.mu_layer(x).tanh()
+        mu = self.conv3(x).tanh()
         
         # get std
-        log_std = self.log_std_layer(x).tanh()
-        log_std = self.log_std_min + 0.5 * (
-            self.log_std_max - self.log_std_min
-        ) * (log_std + 1)
+        log_std = self.conv3(x).tanh()
+        log_std = -20 + 0.5 * (2 - -20) * (log_std + 1)
         std = torch.exp(log_std)
         
         # sample actions
@@ -253,12 +252,12 @@ class Actor(nn.Module):
     
     
 class CriticQ(nn.Module):
-    def __init__(self, HV_NUMBER, ACTION_NUMBER):
+    def __init__(self, ACTION_NUMBER, HV_NUMBER):
         super(CriticQ, self).__init__()
         self.conv1 = nn.Conv2d(HV_NUMBER+512, 1024, kernel_size=1, padding=0)
         self.conv2 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
         self.conv3 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
-        self.fc4 = nn.Linear(ACTION_NUMBER+512+1024, 512)
+        self.fc4 = nn.Linear(1025, 512)
         self.fc5 = nn.Linear(512, 1)
 
         for m in self.modules():
@@ -270,8 +269,16 @@ class CriticQ(nn.Module):
         x = nn.functional.relu(self.conv1(state))
         x = nn.functional.relu(self.conv2(x))
         x = nn.functional.relu(self.conv3(x))
-        x = x.view(-1, state.size()[1] + action.size()[1])
-        x = torch.cat((x, action), dim=-1)
+        x = x.view(-1, 1024)
+        print(x.shape)
+        print(action.shape)
+        action = action.view(x.size(0), -1)
+        # print(x.shape)
+        # print(action.shape)
+        # print(x)
+        # print(action)
+        x = torch.cat((x, action), dim=1)
+        x = x.view(x.size(0), -1)
         x = nn.functional.relu(self.fc4(x))
         value = self.fc5(x)        
         return value
@@ -283,7 +290,7 @@ class CriticV(nn.Module):
         self.conv1 = nn.Conv2d(HV_NUMBER+512, 1024, kernel_size=1, padding=0)
         self.conv2 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
         self.conv3 = nn.Conv2d(1024, 1024, kernel_size=1, padding=0)
-        self.fc4 = nn.Linear(512+1024, 512)
+        self.fc4 = nn.Linear(1024, 512)
         self.fc5 = nn.Linear(512, 1)
 
         for m in self.modules():

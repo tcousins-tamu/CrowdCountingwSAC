@@ -61,7 +61,7 @@ minerror[1] = 9999
 net = LibraNet(parameters) 
 weights_normal_init(net, 0.01) 
 
-if not Path(dir_path + "model_ckpt.pth.tar").is_file():
+if not Path(dir_path + "sac_model_ckpt.pth.tar").is_file():
     epoch_last=0    
     print("Load pretrained model!")
     net.backbone.load_state_dict(torch.load(dir_path + 'backbone.pth.tar')['state_dict'])
@@ -69,10 +69,10 @@ if not Path(dir_path + "model_ckpt.pth.tar").is_file():
 
 else:
     print("Load check point model!")
-    net.load_state_dict(torch.load(dir_path + 'model_ckpt.pth.tar')['state_dict'])
-    epoch_last = torch.load(dir_path + 'model_ckpt.pth.tar')['epoch'] + 1
-    minerror[0] = torch.load(dir_path + 'model_ckpt.pth.tar')['mae']
-    minerror[1] = torch.load(dir_path + 'model_ckpt.pth.tar')['mse']
+    net.load_state_dict(torch.load(dir_path + 'sac_model_ckpt.pth.tar')['state_dict'])
+    epoch_last = torch.load(dir_path + 'sac_model_ckpt.pth.tar')['epoch'] + 1
+    minerror[0] = torch.load(dir_path + 'sac_model_ckpt.pth.tar')['mae']
+    minerror[1] = torch.load(dir_path + 'sac_model_ckpt.pth.tar')['mse']
     
 net = net.cuda()
             
@@ -88,7 +88,7 @@ for epoch in tqdm(range(epoch_last, all_epoches)):
     net.v_target.load_state_dict(net.v.state_dict())
     optimizer = optim.SGD([{'params':net.v.parameters(), 'lr':learning_rate[epoch]}])
 
-    # train_model(net, epoch, all_epoches, train_path, replay, optimizer, minerror, parameters)
+    train_model(net, epoch, all_epoches, train_path, replay, optimizer, minerror, parameters)
     mae,mse = test_model(net, epoch, test_path, parameters)
     
     ##Save model
@@ -111,7 +111,7 @@ for epoch in tqdm(range(epoch_last, all_epoches)):
                 'mse':mse
             }
     
-    torch.save(state_ckpt, dir_path + 'model_ckpt.pth.tar')
+    torch.save(state_ckpt, dir_path + 'sac_model_ckpt.pth.tar')
         
     print('mae=%.3f,mse=%.3f\n'%(mae, mse))
     

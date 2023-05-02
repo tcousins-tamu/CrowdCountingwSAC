@@ -274,7 +274,7 @@ def train_model(net, epoch, all_epoches, train_path, replay, optimizer, minerror
 
                         # train alpha (dual problem)
                         alpha_loss = (
-                            -net.log_alpha.exp() * (log_prob + net.target_entropy).detach()
+                            -net.log_alpha.cuda().exp() * (log_prob.cuda() + net.target_entropy).detach()
                         ).mean()
 
                         net.alpha_optimizer.zero_grad()
@@ -293,16 +293,17 @@ def train_model(net, epoch, all_epoches, train_path, replay, optimizer, minerror
                         q2_pred = net.q2(torch.cat([state_fv_batch, state_hv_batch],1), act_batch)
                         v_target = net.v_target(torch.cat([state_fv_batch, next_state_hv_batch],1))
                         q_target = rew_batch + net.gamma * v_target * mask
-                        q1_loss = F.mse_loss(q1_pred, q_target.detach())
-                        q2_loss = F.mse_loss(q2_pred, q_target.detach())
+                        q1_loss = nn.functional.mse_loss(q1_pred, q_target.detach())
+                        q2_loss = nn.functional.mse_loss(q2_pred, q_target.detach())
                         
                         # v function loss
                         v_pred = net.v(torch.cat([state_fv_batch, state_hv_batch],1))
+                        print('new_action: {}'.format(new_action))
                         q_pred = torch.min(
                             net.q1(torch.cat([state_fv_batch, state_hv_batch],1), new_action), net.q2(torch.cat([state_fv_batch, state_hv_batch],1), new_action)
                         )
                         v_target = q_pred - alpha * log_prob
-                        v_loss = F.mse_loss(v_pred, v_target.detach())
+                        v_loss = nn.functional.mse_loss(v_pred, v_target.detach())
                         
                         # actor loss
                         advantage = q_pred - v_pred.detach()
